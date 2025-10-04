@@ -1,0 +1,49 @@
+#File: .gitlab-ci.yml
+
+# Use Docker-in-Docker (dind) setup
+image: registry.metaprocess.ir/dockerhub/docker:24.0 # Includes Docker CLI; we'll install docker compose
+
+services:
+  - name: registry.metaprocess.ir/dockerhub/docker:24.0-dind
+    alias: docker  # Critical fix: Makes service reachable at hostname "docker"
+
+variables:
+    # Disable TLS for simplicity (use only for trusted environments)
+    DOCKER_TLS_CERTDIR: ""
+    # Use simple host-based networking
+    DOCKER_HOST: tcp://docker:2375
+    COMPOSE_PROJECT_NAME: ci_${CI_PIPELINE_ID}  # Prevent naming conflicts
+
+stages:
+    - test
+    # - build
+
+# build-stage:
+#     stage: build
+#     script:
+#         - docker info
+#         - docker compose version
+#         - cd src
+#         - docker compose version  # Verify compose is available
+#         - docker compose up sdkcpp_build
+#     # Optional: Add cleanup to avoid conflicts in subsequent runs
+#     after_script:
+#         - cd src
+#         - docker compose down sdkcpp_build --remove-orphans
+
+test-stage:
+    stage: test
+    # needs: ["build-stage"]
+    script:
+        - cd src
+        - docker compose up sdkcpp_test
+    after_script:
+        - cd src
+        - docker compose down sdkcpp_test --remove-orphans
+
+    artifacts:
+        when: always
+        paths:
+            - src/build_docker/test_sdkcpp.xml # Optional: upload test results
+        reports:
+            junit: src/build_docker/test_sdkcpp.xml  # GitLab will parse JUnit format
