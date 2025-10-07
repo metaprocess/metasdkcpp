@@ -1,5 +1,6 @@
 #include "MatrixUtils.h"
 #include <iostream>
+#include <algorithm>
 
 void MatrixUtils::test_eigen_memory_order()
 {
@@ -143,4 +144,307 @@ MatrixVariant MatrixUtils::load_from_file_on_disk(const std::string& _name_file)
 MatrixCompareResult::MatrixCompareResult(const bool &_match, const double &_sum_diff, const double &_max_diff, const double& _min_diff):
     m_match(_match), m_sum_diff(_sum_diff), m_max_diff(_max_diff), m_min_diff(_min_diff)
 {
+}
+
+
+MatrixVariant MatrixUtils::load_from_resource_mat(const std::string& _resource_path, const std::string& _name_variable) {
+    // Get the resource
+    auto _res = get_resource(_resource_path);
+    assertm(_res.start != nullptr, ("Could not find resource: " + _resource_path).c_str());
+    assertm(_res.size > 0, ("Resource is empty: " + _resource_path).c_str());
+
+    // Create a temporary file to write the resource data
+    // Note: matio doesn't support reading directly from memory, so we need to use a temp file
+    std::string temp_filename = "/tmp/matio_resource_" + _resource_path;
+    std::replace(temp_filename.begin(), temp_filename.end(), '/', '_');
+    
+    // Write resource to temporary file
+    std::ofstream temp_file(temp_filename, std::ios::binary);
+    if (!temp_file.is_open()) {
+        throw std::runtime_error("Could not create temporary file for MAT resource: " + temp_filename);
+    }
+    temp_file.write(reinterpret_cast<const char*>(_res.start), _res.size);
+    temp_file.close();
+    
+    if (temp_file.fail()) {
+        throw std::runtime_error("Failed to write resource to temporary file: " + temp_filename);
+    }
+
+    // Open the MAT file from the temporary file
+    mat_t *matfp = Mat_Open(temp_filename.c_str(), MAT_ACC_RDONLY);
+    if (!matfp) {
+        // Clean up temp file on error
+        std::remove(temp_filename.c_str());
+        throw std::runtime_error("Could not open MAT file from resource: " + _resource_path);
+    }
+
+    auto _ret = load_from_mat_file(temp_filename, _name_variable);
+    std::remove(temp_filename.c_str());
+    return _ret;
+
+    #if 0
+    // Read the variable
+    matvar_t *matvar = Mat_VarRead(matfp, _name_variable.c_str());
+    assertm(matvar, ("Could not read variable '" + _name_variable + "' from MAT resource: " + _resource_path).c_str());
+
+    // Check if it's a 2D matrix
+    assertm(matvar->rank == 2, ("Variable '" + _name_variable + "' is not a 2D matrix (rank = " + std::to_string(matvar->rank) + ")").c_str());
+
+    size_t rows = matvar->dims[0];
+    size_t cols = matvar->dims[1];
+    MatrixVariant result;
+
+    try {
+        // Handle different data types
+        switch (matvar->class_type) {
+            case MAT_C_DOUBLE: {
+                if (matvar->data_type == MAT_T_DOUBLE) {
+                    if (matvar->isComplex) {
+                        // Complex double matrix
+                        mat_complex_split_t* complex_data = static_cast<mat_complex_split_t*>(matvar->data);
+                        double* real_part = static_cast<double*>(complex_data->Re);
+                        double* imag_part = static_cast<double*>(complex_data->Im);
+                        
+                        Eigen::MatrixXcd matrix(rows, cols);
+                        for (size_t i = 0; i < rows; ++i) {
+                            for (size_t j = 0; j < cols; ++j) {
+                                size_t idx = i + j * rows;
+                                matrix(i, j) = std::complex<double>(real_part[idx], imag_part[idx]);
+                            }
+                        }
+                        result = matrix;
+                    } else {
+                        // Double matrix
+                        Eigen::MatrixXd matrix(rows, cols);
+                        memcpy(matrix.data(), matvar->data, rows * cols * sizeof(double));
+                        result = matrix;
+                    }
+                }
+                break;
+            }
+            case MAT_C_SINGLE: {
+                if (matvar->data_type == MAT_T_SINGLE) {
+                    // Float matrix
+                    Eigen::MatrixXf matrix(rows, cols);
+                    memcpy(matrix.data(), matvar->data, rows * cols * sizeof(float));
+                    result = matrix;
+                }
+                break;
+            }
+            case MAT_C_INT32: {
+                if (matvar->data_type == MAT_T_INT32) {
+                    // Int32 matrix
+                    Eigen::MatrixXi matrix(rows, cols);
+                    memcpy(matrix.data(), matvar->data, rows * cols * sizeof(int32_t));
+                    result = matrix;
+                }
+                break;
+            }
+            case MAT_C_INT16: {
+                if (matvar->data_type == MAT_T_INT16) {
+                    // Int16 matrix
+                    Eigen::Matrix<int16_t, Eigen::Dynamic, Eigen::Dynamic> matrix(rows, cols);
+                    memcpy(matrix.data(), matvar->data, rows * cols * sizeof(int16_t));
+                    result = matrix;
+                }
+                break;
+            }
+            case MAT_C_UINT16: {
+                if (matvar->data_type == MAT_T_UINT16) {
+                    // Uint16 matrix
+                    Eigen::Matrix<uint16_t, Eigen::Dynamic, Eigen::Dynamic> matrix(rows, cols);
+                    memcpy(matrix.data(), matvar->data, rows * cols * sizeof(uint16_t));
+                    result = matrix;
+                }
+                break;
+            }
+            case MAT_C_INT8: {
+                if (matvar->data_type == MAT_T_INT8) {
+                    // Int8 matrix
+                    Eigen::Matrix<int8_t, Eigen::Dynamic, Eigen::Dynamic> matrix(rows, cols);
+                    memcpy(matrix.data(), matvar->data, rows * cols * sizeof(int8_t));
+                    result = matrix;
+                }
+                break;
+            }
+            case MAT_C_UINT8: {
+                if (matvar->data_type == MAT_T_UINT8) {
+                    // Uint8 matrix
+                    Eigen::Matrix<uint8_t, Eigen::Dynamic, Eigen::Dynamic> matrix(rows, cols);
+                    memcpy(matrix.data(), matvar->data, rows * cols * sizeof(uint8_t));
+                    result = matrix;
+                }
+                break;
+            }
+            case MAT_C_UINT32: {
+                if (matvar->data_type == MAT_T_UINT32) {
+                    // Uint32 matrix
+                    Eigen::Matrix<uint32_t, Eigen::Dynamic, Eigen::Dynamic> matrix(rows, cols);
+                    memcpy(matrix.data(), matvar->data, rows * cols * sizeof(uint32_t));
+                    result = matrix;
+                }
+                break;
+            }
+            default: {
+                Mat_VarFree(matvar);
+                Mat_Close(matfp);
+                assertm(false, ("Unsupported MAT variable class type: " + std::to_string(matvar->class_type)).c_str());
+            }
+        }
+    } catch (const std::exception& e) {
+        Mat_VarFree(matvar);
+        Mat_Close(matfp);
+        throw;
+    }
+
+    // Clean up
+    Mat_VarFree(matvar);
+    Mat_Close(matfp);
+    
+    // Remove temporary file
+    std::remove(temp_filename.c_str());
+
+    return result;
+    #endif
+}
+
+MatrixVariant MatrixUtils::load_mat(const std::string &_name_file, const std::string &_name_variable)
+{
+    assertm(!_name_file.empty(), "filename is empty");
+    if(':' == _name_file[0])
+    {
+        auto _str = std::string(_name_file.begin() + 2, _name_file.end());
+        return load_from_resource_mat(_str, _name_variable);
+    }
+    else
+    {
+        return load_from_mat_file(_name_file, _name_variable);
+    }
+}
+
+MatrixVariant MatrixUtils::load_from_mat_file(const std::string &_name_file, const std::string &_name_variable)
+{
+    // Open the MAT file
+    mat_t *matfp = Mat_Open(_name_file.c_str(), MAT_ACC_RDONLY);
+    assertm(matfp, ("Could not open MAT file: " + _name_file).c_str());
+
+    // Read the variable
+    matvar_t *matvar = Mat_VarRead(matfp, _name_variable.c_str());
+    assertm(matvar, ("Could not read variable '" + _name_variable + "' from MAT file: " + _name_file).c_str());
+
+    // Check if it's a 2D matrix
+    assertm(matvar->rank == 2, ("Variable '" + _name_variable + "' is not a 2D matrix (rank = " + std::to_string(matvar->rank) + ")").c_str());
+
+    size_t rows = matvar->dims[0];
+    size_t cols = matvar->dims[1];
+    MatrixVariant result;
+
+    try {
+        // Handle different data types
+        switch (matvar->class_type) {
+            case MAT_C_DOUBLE: {
+                if (matvar->data_type == MAT_T_DOUBLE) {
+                    if (matvar->isComplex) {
+                        // Complex double matrix
+                        mat_complex_split_t* complex_data = static_cast<mat_complex_split_t*>(matvar->data);
+                        double* real_part = static_cast<double*>(complex_data->Re);
+                        double* imag_part = static_cast<double*>(complex_data->Im);
+                        
+                        Eigen::MatrixXcd matrix(rows, cols);
+                        for (size_t i = 0; i < rows; ++i) {
+                            for (size_t j = 0; j < cols; ++j) {
+                                size_t idx = i + j * rows;
+                                matrix(i, j) = std::complex<double>(real_part[idx], imag_part[idx]);
+                            }
+                        }
+                        result = matrix;
+                    } else {
+                        // Double matrix
+                        Eigen::MatrixXd matrix(rows, cols);
+                        memcpy(matrix.data(), matvar->data, rows * cols * sizeof(double));
+                        result = matrix;
+                    }
+                }
+                break;
+            }
+            case MAT_C_SINGLE: {
+                if (matvar->data_type == MAT_T_SINGLE) {
+                    // Float matrix
+                    Eigen::MatrixXf matrix(rows, cols);
+                    memcpy(matrix.data(), matvar->data, rows * cols * sizeof(float));
+                    result = matrix;
+                }
+                break;
+            }
+            case MAT_C_INT32: {
+                if (matvar->data_type == MAT_T_INT32) {
+                    // Int32 matrix
+                    Eigen::MatrixXi matrix(rows, cols);
+                    memcpy(matrix.data(), matvar->data, rows * cols * sizeof(int32_t));
+                    result = matrix;
+                }
+                break;
+            }
+            case MAT_C_INT16: {
+                if (matvar->data_type == MAT_T_INT16) {
+                    // Int16 matrix
+                    Eigen::Matrix<int16_t, Eigen::Dynamic, Eigen::Dynamic> matrix(rows, cols);
+                    memcpy(matrix.data(), matvar->data, rows * cols * sizeof(int16_t));
+                    result = matrix;
+                }
+                break;
+            }
+            case MAT_C_UINT16: {
+                if (matvar->data_type == MAT_T_UINT16) {
+                    // Uint16 matrix
+                    Eigen::Matrix<uint16_t, Eigen::Dynamic, Eigen::Dynamic> matrix(rows, cols);
+                    memcpy(matrix.data(), matvar->data, rows * cols * sizeof(uint16_t));
+                    result = matrix;
+                }
+                break;
+            }
+            case MAT_C_INT8: {
+                if (matvar->data_type == MAT_T_INT8) {
+                    // Int8 matrix
+                    Eigen::Matrix<int8_t, Eigen::Dynamic, Eigen::Dynamic> matrix(rows, cols);
+                    memcpy(matrix.data(), matvar->data, rows * cols * sizeof(int8_t));
+                    result = matrix;
+                }
+                break;
+            }
+            case MAT_C_UINT8: {
+                if (matvar->data_type == MAT_T_UINT8) {
+                    // Uint8 matrix
+                    Eigen::Matrix<uint8_t, Eigen::Dynamic, Eigen::Dynamic> matrix(rows, cols);
+                    memcpy(matrix.data(), matvar->data, rows * cols * sizeof(uint8_t));
+                    result = matrix;
+                }
+                break;
+            }
+            case MAT_C_UINT32: {
+                if (matvar->data_type == MAT_T_UINT32) {
+                    // Uint32 matrix
+                    Eigen::Matrix<uint32_t, Eigen::Dynamic, Eigen::Dynamic> matrix(rows, cols);
+                    memcpy(matrix.data(), matvar->data, rows * cols * sizeof(uint32_t));
+                    result = matrix;
+                }
+                break;
+            }
+            default: {
+                Mat_VarFree(matvar);
+                Mat_Close(matfp);
+                assertm(false, ("Unsupported MAT variable class type: " + std::to_string(matvar->class_type)).c_str());
+            }
+        }
+    } catch (const std::exception& e) {
+        Mat_VarFree(matvar);
+        Mat_Close(matfp);
+        throw;
+    }
+
+    // Clean up
+    Mat_VarFree(matvar);
+    Mat_Close(matfp);
+
+    return result;
 }

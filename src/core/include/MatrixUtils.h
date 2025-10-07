@@ -2,12 +2,14 @@
 #define __MATRIX_UTILS_H__
 
 #include "Eigen/Dense"
+#include <unsupported/Eigen/CXX11/Tensor>
 #include <fstream>
 #include <iostream>
 #include <CommonConstants.h>
 #include <variant>
 #include <limits>
 #include <stdexcept>      // For std::runtime_error
+#include <matio.h>
 #include RESOURCES_HEADER
 
 
@@ -51,6 +53,7 @@ using MatrixVariant = std::variant<
     Eigen::Matrix<int8_t, Eigen::Dynamic, Eigen::Dynamic>,
     Eigen::Matrix<uint16_t, Eigen::Dynamic, Eigen::Dynamic>,
     Eigen::Matrix<int16_t, Eigen::Dynamic, Eigen::Dynamic>,
+    Eigen::Matrix<uint32_t, Eigen::Dynamic, Eigen::Dynamic>,
     Eigen::MatrixXi,
     Eigen::MatrixXf,
     Eigen::MatrixXd,
@@ -93,7 +96,17 @@ public:
     template<typename _Scalar>
     static MatrixCompareResult compare_matrices(const Eigen::Matrix<_Scalar, Eigen::Dynamic, Eigen::Dynamic>& _mat1, const Eigen::Matrix<_Scalar, Eigen::Dynamic, Eigen::Dynamic>& _mat2);
 
+    template<typename _Scalar, int _Rows, int _Cols, int _Options, int _MaxRows, int _MaxCols>
+    static void save_to_mat_file(const std::string& filename, const Eigen::Matrix<_Scalar, _Rows, _Cols, _Options, _MaxRows, _MaxCols>& matrix, const std::string& varname = "matrix");
+
+    template<typename Scalar, int NumDims>
+    static void save_to_mat_file(const std::string& filename, const Eigen::Tensor<Scalar, NumDims>& tensor, const std::string& varname = "tensor");
+
+    static MatrixVariant load_mat(const std::string& _name_file, const std::string& _name_variable);
+    
 private:
+    static MatrixVariant load_from_mat_file(const std::string& _name_file, const std::string& _name_variable);
+    static MatrixVariant load_from_resource_mat(const std::string& _resource_path, const std::string& _name_variable);
     template <typename Scalar>
     static Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic> load_matrix(std::istream& file, int rows, int cols);
     
@@ -300,6 +313,149 @@ inline void MatrixUtils::release(Eigen::Matrix<_Scalar, _Rows, _Cols, _Options, 
 {
     _matrix.resize(0);
     _matrix.shrinkToFit();
+}
+
+template<typename _Scalar, int _Rows, int _Cols, int _Options, int _MaxRows, int _MaxCols>
+void MatrixUtils::save_to_mat_file(const std::string& filename, const Eigen::Matrix<_Scalar, _Rows, _Cols, _Options, _MaxRows, _MaxCols>& matrix, const std::string& varname)
+{
+    mat_t *matfp = Mat_CreateVer(filename.c_str(), nullptr, MAT_FT_MAT5);
+    if (!matfp) {
+        throw std::runtime_error("Could not create MAT file: " + filename);
+    }
+
+    size_t dims[2] = {static_cast<size_t>(matrix.rows()), static_cast<size_t>(matrix.cols())};
+    enum matio_types data_type;
+    enum matio_classes class_type;
+    int isComplex = 0;
+
+    if (std::is_same<_Scalar, double>::value) {
+        data_type = MAT_T_DOUBLE;
+        class_type = MAT_C_DOUBLE;
+    } else if (std::is_same<_Scalar, float>::value) {
+        data_type = MAT_T_SINGLE;
+        class_type = MAT_C_SINGLE;
+    } else if (std::is_same<_Scalar, int32_t>::value) {
+        data_type = MAT_T_INT32;
+        class_type = MAT_C_INT32;
+    } else if (std::is_same<_Scalar, std::complex<double>>::value) {
+        data_type = MAT_T_DOUBLE;
+        class_type = MAT_C_DOUBLE;
+        isComplex = 1;
+    } else if (std::is_same<_Scalar, int16_t>::value) {
+        data_type = MAT_T_INT16;
+        class_type = MAT_C_INT16;
+    } else if (std::is_same<_Scalar, uint16_t>::value) {
+        data_type = MAT_T_UINT16;
+        class_type = MAT_C_UINT16;
+    } else if (std::is_same<_Scalar, int8_t>::value) {
+        data_type = MAT_T_INT8;
+        class_type = MAT_C_INT8;
+    } else if (std::is_same<_Scalar, uint8_t>::value) {
+        data_type = MAT_T_UINT8;
+        class_type = MAT_C_UINT8;
+    } else {
+        Mat_Close(matfp);
+        throw std::invalid_argument("Unsupported scalar type for MAT file");
+    }
+
+    matvar_t *matvar = nullptr;
+    if (isComplex) {
+        Eigen::Matrix<double, _Rows, _Cols> real_part = matrix.real();
+        Eigen::Matrix<double, _Rows, _Cols> imag_part = matrix.imag();
+        mat_complex_split_t complex_data;
+        complex_data.Re = real_part.data();
+        complex_data.Im = imag_part.data();
+        matvar = Mat_VarCreate(varname.c_str(), class_type, data_type, 2, dims, &complex_data, MAT_F_COMPLEX);
+    } else {
+        matvar = Mat_VarCreate(varname.c_str(), class_type, data_type, 2, dims, const_cast<_Scalar*>(matrix.data()), 0);
+    }
+
+    if (!matvar) {
+        Mat_Close(matfp);
+        throw std::runtime_error("Could not create MAT variable");
+    }
+
+    if (Mat_VarWrite(matfp, matvar, MAT_COMPRESSION_ZLIB) != 0) {
+        Mat_VarFree(matvar);
+        Mat_Close(matfp);
+        throw std::runtime_error("Could not write variable to MAT file");
+    }
+
+    Mat_VarFree(matvar);
+    Mat_Close(matfp);
+}
+
+template<typename Scalar, int NumDims>
+void MatrixUtils::save_to_mat_file(const std::string& filename, const Eigen::Tensor<Scalar, NumDims>& tensor, const std::string& varname)
+{
+    mat_t *matfp = Mat_CreateVer(filename.c_str(), nullptr, MAT_FT_MAT5);
+    if (!matfp) {
+        throw std::runtime_error("Could not create MAT file: " + filename);
+    }
+
+    size_t dims[NumDims];
+    size_t total_elements = 1;
+    for (int i = 0; i < NumDims; ++i) {
+        dims[i] = static_cast<size_t>(tensor.dimension(i));
+        total_elements *= dims[i];
+    }
+
+    enum matio_types data_type;
+    enum matio_classes class_type;
+    int isComplex = 0;
+
+    if (std::is_same<Scalar, double>::value) {
+        data_type = MAT_T_DOUBLE;
+        class_type = MAT_C_DOUBLE;
+    } else if (std::is_same<Scalar, float>::value) {
+        data_type = MAT_T_SINGLE;
+        class_type = MAT_C_SINGLE;
+    } else if (std::is_same<Scalar, int32_t>::value) {
+        data_type = MAT_T_INT32;
+        class_type = MAT_C_INT32;
+    } else if (std::is_same<Scalar, std::complex<double>>::value) {
+        data_type = MAT_T_DOUBLE;
+        class_type = MAT_C_DOUBLE;
+        isComplex = 1;
+        // Note: For tensors, complex handling is complex, may need to reshape or something
+    } else if (std::is_same<Scalar, int16_t>::value) {
+        data_type = MAT_T_INT16;
+        class_type = MAT_C_INT16;
+    } else if (std::is_same<Scalar, uint16_t>::value) {
+        data_type = MAT_T_UINT16;
+        class_type = MAT_C_UINT16;
+    } else if (std::is_same<Scalar, int8_t>::value) {
+        data_type = MAT_T_INT8;
+        class_type = MAT_C_INT8;
+    } else if (std::is_same<Scalar, uint8_t>::value) {
+        data_type = MAT_T_UINT8;
+        class_type = MAT_C_UINT8;
+    } else {
+        Mat_Close(matfp);
+        throw std::invalid_argument("Unsupported scalar type for tensor MAT file");
+    }
+
+    matvar_t *matvar = nullptr;
+    // For simplicity, assume non-complex for tensors; complex would need flattening
+    if (isComplex) {
+        Mat_Close(matfp);
+        throw std::invalid_argument("Complex tensor support not implemented yet");
+    } else {
+        matvar = Mat_VarCreate(varname.c_str(), class_type, data_type, NumDims, dims, const_cast<Scalar*>(tensor.data()), 0);
+        if (!matvar) {
+            Mat_Close(matfp);
+            throw std::runtime_error("Could not create MAT variable for tensor");
+        }
+    }
+
+    if (Mat_VarWrite(matfp, matvar, MAT_COMPRESSION_NONE) != 0) {
+        Mat_VarFree(matvar);
+        Mat_Close(matfp);
+        throw std::runtime_error("Could not write tensor variable to MAT file");
+    }
+
+    Mat_VarFree(matvar);
+    Mat_Close(matfp);
 }
 
 #endif //__MATRIX_UTILS_H__

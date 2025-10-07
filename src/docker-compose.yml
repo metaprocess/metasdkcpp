@@ -13,7 +13,7 @@ services:
         command: >
             bash -c "
                 set -e
-                mkdir build_docker
+                mkdir -p build_docker
                 cmake -S /app/src -B /app/build_docker
                 cmake --build /app/build_docker --parallel
                 cd /app/build_docker

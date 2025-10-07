@@ -1,0 +1,34 @@
+repos:
+- repo: https://github.com/pre-commit/mirrors-clang-format
+  rev: v21.1.1
+  hooks:
+  - id: clang-format
+    files: ^(src\/.+\.[ch]|tools\/matdump.c|test\/test_mat.c)$
+    exclude: ^(src\/fortran\/matio_internal.c|src\/snprintf.c|src\/safe-math.h)$
+
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v6.0.0
+  hooks:
+  - id: trailing-whitespace
+    files: ^src\/.+\.[ch]$
+  - id: end-of-file-fixer
+    files: ^src\/.+\.[ch]$
+  - id: fix-byte-order-marker
+    files: ^src\/.+\.[ch]$
+
+- repo: https://github.com/cheshirekow/cmake-format-precommit
+  rev: v0.6.13
+  hooks:
+  - id: cmake-format
+    additional_dependencies: [pyyaml>=5.1]
+    args:
+    - --line-width=120
+    - --tab-size=4
+    exclude: cmake/conan.cmake
+  - id: cmake-lint
+    additional_dependencies: [pyyaml>=5.1]
+    args:
+    - --line-width=120
+    - --tab-size=4
+    - --disabled-codes=C0103
+    exclude: cmake/conan.cmake

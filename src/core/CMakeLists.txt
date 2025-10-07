@@ -47,8 +47,21 @@ add_library(
 embed_resources(${PROJECT_TARGET_EXE} ${RCS_LIST})
 embed_resources(${PROJECT_TARGET_LIB} ${RCS_LIST})
 
+# Find FFTW3 library
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(FFTW3 REQUIRED fftw3)
+
+# Manually find fftw3_threads library
+find_library(FFTW3_THREADS_LIBRARY NAMES fftw3_threads HINTS /usr/lib64 /usr/local/lib64)
+if (NOT FFTW3_THREADS_LIBRARY)
+    message(FATAL_ERROR "FFTW3 threads library not found")
+endif()
+
 set(LIB_DEPS
 	metasdkcpp_utilities
+	matio
+	${FFTW3_LIBRARIES}
+    ${FFTW3_THREADS_LIBRARY}
 )
 
 target_link_libraries(${PROJECT_TARGET_EXE}

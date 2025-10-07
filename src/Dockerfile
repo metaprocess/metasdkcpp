@@ -11,10 +11,29 @@ RUN apk add --no-cache \
     zlib-dev \
     linux-headers \
     musl-dev \
-    bash
+    bash \
+    hdf5-dev \
+    sudo \
+    fftw-dev \
+    python3 \
+    python3-dev \
+    py3-pip \
+    gdb
+
+# Create user with UID 1000
+RUN addgroup -g 1000 devuser && \
+    adduser -D -u 1000 -G devuser devuser && \
+    echo "devuser ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/devuser && \
+    chmod 0440 /etc/sudoers.d/devuser
 
 # Set working directory
 WORKDIR /app
+
+# Change ownership of /app to devuser
+RUN chown -R devuser:devuser /app
+
+# Switch to non-root user
+USER devuser
 
 # Copy source code
 # COPY . .

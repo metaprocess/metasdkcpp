@@ -22,6 +22,7 @@ set(SRCS
 	${SRC_LIST}
 )
 
+add_subdirectory(matio)
 
 add_library(
     ${PROJECT_NAME} SHARED 
