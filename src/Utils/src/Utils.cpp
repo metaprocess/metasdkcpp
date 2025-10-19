@@ -748,6 +748,11 @@ const std::string Utils::timestamp_to_iso_datetime_string(const int64_t &_timest
     return std::string(buf);
 }
 
+StdThreadPool &Utils::get_std_threadpool()
+{
+    static StdThreadPool _std_thread_pool;
+    return _std_thread_pool;
+}
 
 void Utils::set_app_name(const std::string &_name)
 {

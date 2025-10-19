@@ -12,6 +12,7 @@
 #include <netinet/in.h>
 #include <functional>
 #include <thread>
+#include "std_thread_pool.h"
 
 #define MISSIONS_ACTIONS_FILE "actions.csv"
 #define MISSIONS_NO_SCENARIO "noScenario"
@@ -26,6 +27,7 @@ class Utils
 //    Q_OBJECT
 
 public:
+	static StdThreadPool& get_std_threadpool();
     static void set_app_name(const std::string& _name);
     static const std::string& get_app_name(void);
 	static Utils* self;
@@ -33,7 +35,6 @@ public:
 
 	static int getVal(const char* _S);
 	static int parseLineWithoutKb(char* line);
-
 
 
     static int getValWithoutKb(const char* _S);

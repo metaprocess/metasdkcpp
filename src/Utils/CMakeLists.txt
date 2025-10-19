@@ -2,6 +2,11 @@ project(metasdkcpp_utilities)
 
 cmake_minimum_required(VERSION 3.16)
 
+# Set the CMP0177 policy to suppress the warning
+if(POLICY CMP0177)
+    cmake_policy(SET CMP0177 NEW)
+endif()
+
 # set(LIBRARY_OUTPUT_PATH ../)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
@@ -23,6 +28,7 @@ set(SRCS
 )
 
 add_subdirectory(matio)
+
 
 add_library(
     ${PROJECT_NAME} SHARED 

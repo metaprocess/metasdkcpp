@@ -1,4 +1,4 @@
-// ThreadPool.cpp
+// std_thread_pool.cpp
 
 #include "std_thread_pool.h"
 #include <sys/prctl.h>
@@ -6,7 +6,7 @@
 #include <iostream>
 #include "Utils.h"
 
-int StdThreadPool::m_num_job{0};
+// int StdThreadPool::m_num_job{0};
 StdThreadPool::StdThreadPool(size_t numThreads) : m_stop(false), m_num_threads(numThreads) {
     // m_list_job_done.resize(numThreads);
     // clear_job_done();
@@ -24,20 +24,24 @@ StdThreadPool::StdThreadPool(size_t numThreads) : m_stop(false), m_num_threads(n
     }
 }
 
+/**
+ * @brief Destructor for StdThreadPool.
+ */
 StdThreadPool::~StdThreadPool() {
     {
         std::lock_guard<std::mutex> lock(m_mutex_queue);
         m_stop = true;
     }
     m_condition_run.notify_all();
-    for(std::thread &worker: m_list_thread_workers)
-    {
+    for (std::thread& worker : m_list_thread_workers) {
         worker.join();
     }
 }
 
-void StdThreadPool::begin(const std::string &_name_job)
-{
+/**
+ * @brief Initiates a new job with the specified name.
+ */
+void StdThreadPool::begin(const std::string& _name_job) {
     m_name_job = _name_job;
 }
 
@@ -73,16 +77,33 @@ void StdThreadPool::begin(const std::string &_name_job)
 void StdThreadPool::parallelize(const int &_num_works, const std::function<void(const TaskArgsGeneral &_args)> &_method, void *_ptr_any)
 {
     // const int _num_works = _num_works;
+    m_num_works = std::min(_num_works, m_num_threads);
     int chunk_size = _num_works / m_num_threads;
-    for(int _iter_job = 0; _iter_job < m_num_threads; _iter_job++)
+    if(0 == chunk_size)
     {
-        TaskArgsGeneral _args{
-            .index_lower = chunk_size * _iter_job,
-            .index_upper = (chunk_size * (_iter_job+1)) + (_iter_job == (m_num_threads - 1)) * (_num_works - (m_num_threads * chunk_size)),
-            .index_job = _iter_job,
-            .ptr_any = _ptr_any
-        };
-        push_task(_method, _args);
+        for(int _iter_job = 0; _iter_job < _num_works; _iter_job++)
+        {
+            TaskArgsGeneral _args{
+                .index_lower = _iter_job,
+                .index_upper = _iter_job + 1,
+                .index_job = _iter_job,
+                .ptr_any = _ptr_any
+            };
+            push_task(_method, _args);
+        }
+    }
+    else
+    {
+        for(int _iter_job = 0; _iter_job < m_num_threads; _iter_job++)
+        {
+            TaskArgsGeneral _args{
+                .index_lower = chunk_size * _iter_job,
+                .index_upper = (chunk_size * (_iter_job+1)) + (_iter_job == (m_num_threads - 1)) * (_num_works - (m_num_threads * chunk_size)),
+                .index_job = _iter_job,
+                .ptr_any = _ptr_any
+            };
+            push_task(_method, _args);
+        }
     }
 
     
@@ -139,11 +160,11 @@ void StdThreadPool::thread_worker()
 // }
 
 void StdThreadPool::wait_for_tasks() {
-    if(m_tasks_completed < static_cast<size_t>(m_num_threads))
+    if(m_tasks_completed < static_cast<size_t>(m_num_works))
     {
         std::unique_lock<std::mutex> lock(m_mutex_queue);
         m_condition_done.wait(lock, [this]{
-            bool _done = (m_tasks_completed >= static_cast<size_t>(m_num_threads));
+            bool _done = (m_tasks_completed >= static_cast<size_t>(m_num_works));
             // std::cerr << Utils::getTickCountMs() << "::" <<this->m_name_job <<" :: m_tasks_completed = " << m_tasks_completed << "\n";
             return _done;
         });
@@ -155,6 +176,7 @@ void StdThreadPool::wait_for_tasks() {
     // }
     m_tasks_completed = 0;
     m_tasks_queued = 0;
+    m_num_works = 0;
     // clear_job_done();
     m_name_job.clear();
 }

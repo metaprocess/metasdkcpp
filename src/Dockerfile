@@ -1,7 +1,7 @@
 FROM alpine:3.20
 
 # Install build dependencies
-RUN apk add --no-cache \
+RUN apk add --verbose --no-cache \
     cmake \
     git \
     g++ \

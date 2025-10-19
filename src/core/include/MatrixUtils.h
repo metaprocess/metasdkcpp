@@ -31,6 +31,7 @@ public:
         {
             output << "max diff = (" << _result.max_diff() << "), sum diff = (" << _result.sum_diff() << "), min diff = (" << _result.min_diff() << ")";
         }
+        output << "\n";
         return output;
     }
     bool match() const {return m_match;}
@@ -48,6 +49,9 @@ private:
 #define DEG2RAD(A) (A*M_PI/180.)
 #define RAD2DEG(A) (A*180./M_PI)
 
+// Forward declaration for cell array type
+struct CellArray;
+
 using MatrixVariant = std::variant<
     Eigen::Matrix<uint8_t, Eigen::Dynamic, Eigen::Dynamic>,
     Eigen::Matrix<int8_t, Eigen::Dynamic, Eigen::Dynamic>,
@@ -57,8 +61,27 @@ using MatrixVariant = std::variant<
     Eigen::MatrixXi,
     Eigen::MatrixXf,
     Eigen::MatrixXd,
-    Eigen::MatrixXcd
+    Eigen::MatrixXcd,
+    Eigen::Matrix<uint64_t, Eigen::Dynamic, Eigen::Dynamic>,
+    Eigen::Matrix<int64_t, Eigen::Dynamic, Eigen::Dynamic>,
+    Eigen::Tensor<uint8_t, 3>,
+    Eigen::Tensor<int8_t, 3>,
+    Eigen::Tensor<uint16_t, 3>,
+    Eigen::Tensor<int16_t, 3>,
+    Eigen::Tensor<uint32_t, 3>,
+    Eigen::Tensor<int32_t, 3>,
+    Eigen::Tensor<uint64_t, 3>,
+    Eigen::Tensor<int64_t, 3>,
+    Eigen::Tensor<float, 3>,
+    Eigen::Tensor<double, 3>,
+    Eigen::Tensor<std::complex<double>, 3>,
+    std::shared_ptr<CellArray>
 >;
+
+// Define the cell array structure
+struct CellArray {
+    std::vector<std::vector<MatrixVariant>> data;
+};
 
 class MatrixUtils
 {
@@ -103,8 +126,9 @@ public:
     static void save_to_mat_file(const std::string& filename, const Eigen::Tensor<Scalar, NumDims>& tensor, const std::string& varname = "tensor");
 
     static MatrixVariant load_mat(const std::string& _name_file, const std::string& _name_variable);
-    
+
 private:
+    static MatrixVariant load_matvar(matvar_t *matvar);
     static MatrixVariant load_from_mat_file(const std::string& _name_file, const std::string& _name_variable);
     static MatrixVariant load_from_resource_mat(const std::string& _resource_path, const std::string& _name_variable);
     template <typename Scalar>
@@ -294,6 +318,8 @@ inline void MatrixUtils::save_to_file(const std::string &_name_file, Eigen::Matr
         _type = 6;
     } else if (std::is_same<_Scalar, std::complex<double>>::value) {
         _type = 14;
+    } else if (std::is_same<_Scalar, uint32_t>::value) {
+        _type = 7;
     } else {
         throw std::invalid_argument("Unsupported matrix type");
     }
